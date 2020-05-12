@@ -1,0 +1,55 @@
+---
+title: "Untitled"
+author: "Joe Stoica"
+date: "10/19/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(R6)
+library(rvest)
+library(httr)
+```
+
+
+```{r import}
+l = list()
+# we can only pull 50 rows per request, go over to get extra data
+tot_matches <- 15256
+display_per_page <- 50
+iters <- ceiling(tot_matches/display_per_page)
+
+for (i in 1:iters) {
+    j = (i-1)*50
+    url = sprintf("https://www.hltv.org/stats/matches?startDate=2019-01-01&endDate=2019-12-31&offset=%s", j)
+    l[[i]] = url %>% 
+        read_html() %>% 
+        html_node(xpath = "/html/body/div[2]/div/div[2]/div[1]/div/table") %>% 
+        html_table()
+}
+
+all_matches_2019 <- do.call(rbind, l)
+write_csv(all_matches_2019, "all_matches_2019_raw.csv")
+``` 
+
+```{r}
+all_matches_2019_clean <- all_matches_2019 %>% 
+    janitor::clean_names() %>% 
+    separate(team1, into = c("team1", "team1_score"), sep = "\\s\\(") %>% 
+    separate(team2, into = c("team2", "team2_score"), sep = "\\s\\(") %>% 
+    mutate(map = str_extract(map, "[A-Z].*"),
+           team1_score = as.numeric(gsub("\\)",  "", team1_score)),
+           team2_score = as.numeric(gsub("\\)",  "", team2_score)),
+           winner = ifelse(team1_score > team2_score, team1, team2),
+           win_margin = abs(as.numeric(team1_score) - as.numeric(team2_score)),
+           date = lubridate::as_date(date, 
+                                     format = "%d/%m/%y", 
+                                     tz = "est")) %>% 
+    arrange(date)
+``` 
+
+```{r}
+write_csv(all_matches_2019_clean, "all_matches_2019_clean.csv")
+``` 

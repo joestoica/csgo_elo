@@ -1,0 +1,155 @@
+---
+title: "Team Class R6 Creation"
+author: "Joe Stoica"
+date: \today
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(R6)
+```
+
+## Purpose
+
+* Create R6 class for each team throughout the 2019 season
+
+## Ideas
+
+## TODOs
+
+```{r data in}
+all_matches_2019 <- read_csv("data/all_matches_2019_clean.csv")
+```
+
+```{r create class}
+teams = unique(c(all_matches_2019$team1, all_matches_2019$team2))
+
+team <- R6Class("team",
+                
+                public = list(
+                    name = NA, 
+                    match_history = integer(),
+                    maps = character(),
+                    wins = 0,
+                    losses = 0,
+                    elo = 1500,
+                    win_maps = character(),
+                    lose_maps = character(),
+                    map_summary = data.frame(),
+                    win_margin = integer(),
+                    lose_margin = integer(),
+                    
+                    initialize = function(name){
+                        if (!missing(name)) self$name <- name
+                    },
+                    
+                    update_map_df = function(){
+                        maps = c("Overpass", "Cache", "Mirage", "Dust2", 
+                                 "Inferno", "Train", "Nuke", "Vertigo", 
+                                 "Cobblestone")
+                        
+                        wins = table(factor(self$win_maps, levels = maps))
+                        losses = table(factor(self$lose_maps, levels = maps))
+                        df = data.frame(cbind(wins = wins,
+                                              losses = losses))
+                        df$map = rownames(df)
+                        rownames(df) = NULL
+                        df$n = df$wins + df$losses
+                        df$win_rate = df$wins / df$n
+                        
+                        df$map_rank = rank(-df$win_rate, na.last = "keep", )
+                        self$map_summary = df
+                        invisible(self)
+                    }
+                )
+)
+``` 
+
+```{r functions for class list}
+calc_elo <- function(r_1_b, r_2_b, p_1_win) {
+    if (p_1_win){
+        player_1 = "winner"    
+    } else{
+        player_1 = "loser"
+    }
+    
+    r_1 <- 10^(r_1_b/400)
+    r_2 <- 10^(r_2_b/400)
+    
+    
+    e_1 <- r_1 / (r_1 + r_2)
+    e_2 <- r_2 / (r_1 + r_2)
+    
+    s_1 <- ifelse(player_1 == "winner", 1, ifelse(player_1 == "loser", 0, 0.5))
+    s_2 <- ifelse(player_1 == "winner", 0, ifelse(player_1 == "loser", 1, 0.5))
+    
+    K = 32              
+    r_1_f = r_1_b + K*(s_1 - e_1)
+    r_2_f = r_2_b + K*(s_2 - e_2)
+    return(c(r_1_f, r_2_f))
+}
+
+play_match <- function(row){
+    index_1 = which(row[["team1"]] == names(team_list))
+    index_2 = which(row[["team2"]] == names(team_list))
+    
+    team_1 = team_list[[index_1]]
+    team_2 = team_list[[index_2]]
+    
+    # update wins and maps
+    if(row[["winner"]] == team_1$name){
+        # team 1 wins
+        team_1$maps = c(team_1$maps, row[["map"]])
+        team_1$match_history = c(team_1$match_history, 1)
+        team_1$wins = team_1$wins + 1
+        team_1$win_maps = c(team_1$win_maps, row[["map"]])
+        team_1$win_margin = c(team_1$win_margin, row[["win_margin"]])
+        
+        team_2$maps = c(team_2$maps, row[["map"]])
+        team_2$match_history = c(team_2$match_history, 0)
+        team_2$losses = team_2$losses + 1 
+        team_2$lose_maps = c(team_2$lose_maps, row[["map"]])
+        team_2$lose_margin = c(team_2$lose_margin, row[["win_margin"]])
+        
+        # elo
+        elos = calc_elo(team_1$elo, team_2$elo, p_1_win = TRUE)
+        team_1$elo = elos[1]
+        team_2$elo = elos[2]
+    } else {
+        # team 2 wins
+        team_1$maps = c(team_1$maps, row[["map"]])
+        team_1$match_history = c(team_1$match_history, 0)
+        team_1$losses = team_1$losses + 1 
+        team_1$lose_maps = c(team_1$lose_maps, row[["map"]])
+        team_1$lose_margin = c(team_1$lose_margin, row[["win_margin"]])
+        
+        team_2$maps = c(team_2$maps, row[["map"]])
+        team_2$match_history = c(team_2$match_history, 1)
+        team_2$wins = team_2$wins + 1
+        team_2$win_maps = c(team_2$win_maps, row[["map"]])
+        team_2$win_margin = c(team_2$win_margin, row[["win_margin"]])
+        
+        elos = calc_elo(team_1$elo, team_2$elo, p_1_win = FALSE)
+        team_1$elo = elos[1]
+        team_2$elo = elos[2]
+    }
+}
+``` 
+
+```{r}
+# Create team list and name them
+team_list <- lapply(teams, function(x)team$new(x))
+names(team_list) = teams
+
+# run through all of the matches and populate the classes
+invisible(apply(all_matches_2019, 1, play_match))
+invisible(lapply(team_list, function(team)team$update_map_df()))
+``` 
+
+
+```{r}
+# saveRDS(team_list, file = "data/team_list.Rdata")
+```
+

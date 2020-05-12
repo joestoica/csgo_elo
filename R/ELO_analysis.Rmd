@@ -1,0 +1,139 @@
+---
+title: "ELO Analysis"
+author: "Joe Stoica"
+date: \today
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Incoporating map history into ELO
+
+## Purpose:
+
+Prediction of match outcomes using ELO and match history.
+
+## Ideas
+
+### Using maps in the ELO probability calculation. 
+
+* Use ratio of win rates as a multiplier for the divisor, i.e. a team with an 
+extremely high map win rate should have a stronger performance compared to a 
+team with a lower win rate. If both teams have very similar win rates, this
+effect is nullified.
+
+    + Use beta-binomial model to calculate posterior win rates for maps that a 
+    team has not played that many times. The idea behind this is that if a team
+    has played a map only a handful of times, there win rate percentage is going
+    to be fairly volatile and may not accurately represent their true margin of
+    victory. Using a beta prior can adjust for this.
+    
+    + The main issue is finding the cutoff point between when to stop using a 
+    prior and to when a win rate has converged enough to accurately represent a
+    team's true win rate on a map. See *win_rate_convergence_analysis.Rmd*.
+
+* Take into consideration the average(or median?) margin of victory for each 
+team on a map. Similar to win rate, a team that typically wins by 10 rounds
+is probably more dominant than a team that typically wins by one. I'm thinking
+that this can be incoporated into the win rate ratio.
+
+## TODOs
+
+* Finish convergence analysis
+
+* Create a function that calculates adjusted win rates using the bayes estimator
+for maps that have less than *n* plays for any given team.
+
+    + Add this into the team_class constructor functions.
+
+* Model performance comparative analysis to see how well-calibrated the models
+are.
+
+    + I think that we just hold out December (or potentially more?)and see how
+    the predictions hold. We can create a function where we can specify
+    different ELO formulas and use those to see how perform on the held out data
+    and compare which is better.
+    
+    + I hypothesize that adding the map info will lead to stronger predicitive
+    capability, although I also could see this not playing a huge role among 
+    top-tier teams. 
+
+
+## References 
+
++ https://en.m.wikipedia.org/wiki/Elo_rating_system
+
+* https://fivethirtyeight.com/methodology/how-our-nfl-predictions-work/
+
+    + Overall good resource to see how 538 incorporates outside influences into
+    their ELO models.
+
+* https://en.m.wikipedia.org/wiki/World_Football_Elo_Ratings#Expected_result_of_match
+
+    + How you can find expected result of match.
+
+# Calculating ELO probabilities
+
+```{r}
+team_list <- readRDS("data/team_list.Rdata")
+```
+
+```{r}
+# calculate ELO for all teams
+elos <- sapply(team_list, function(team) {
+    return(c(team$team, team$elo))
+})
+
+# df: | team | elo |
+elo_tbl <- tibble(names = names(elos), elos = elos) %>% 
+    arrange(desc(elos))
+```
+
+```{r probability function}
+# This calculates the probability of a matchup
+calc_elo_prob <- function(elo1, elo2) {
+    dr = elo1 - elo2
+    res = 1 / (10^(-dr / 400) + 1)
+    return(as.numeric(res))
+}
+``` 
+
+```{r example}
+calc_elo_prob(elo1 = elo_tbl[1,2], elo_tbl[2,2])
+```
+
+# Calculating adjusted win rates testing zone
+
+```{r}
+astralis <- team_list$Astralis
+
+mean(astralis$map_summary$win_rate, na.rm = T)
+
+map = "Mirage"
+team = astralis
+
+update_win_rate <- function(team, map) {
+    df = team$map_summary
+    ind = which(df$map == map)
+    
+    target_row = df[ind,]
+    
+    # use the overall win rate from other maps as point of reference
+    remove_target = df[-ind, ]
+    # remove other maps that aren't played enough from the calculation
+    remove_target = remove_target[remove_target$n >5,]
+    avg_win_rate = mean(remove_target$win_rate)
+    
+    # beta-binomial model posterior is:
+    # beta(alpha + num_wins, beta + num_losses)
+    
+    alpha = (100 * avg_win_rate) + target_row$wins
+    beta = (100 * (1 - avg_win_rate)) + target_row$losses
+    
+    # bayes estimator
+    alpha / (alpha + beta)
+    
+}
+```
