@@ -109,13 +109,13 @@ calc_elo_prob(elo1 = elo_tbl[1,2], elo_tbl[2,2])
 ```{r}
 astralis <- team_list$Astralis
 
-mean(astralis$map_summary$win_rate, na.rm = T)
+mean(astralis$map_history$win_rate, na.rm = T)
 
 map = "Mirage"
 team = astralis
 
 update_win_rate <- function(team, map) {
-    df = team$map_summary
+    df = team$map_history
     ind = which(df$map == map)
     
     target_row = df[ind,]
